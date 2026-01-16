@@ -139,6 +139,7 @@ export class MarkdownDiffPreviewPanel {
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
     <title>Markdown Diff Preview</title>
     <style>
+        /* Dark theme (default) */
         :root {
             --bg-primary: #0d1117;
             --bg-secondary: #161b22;
@@ -161,6 +162,56 @@ export class MarkdownDiffPreviewPanel {
             --link-color: #58a6ff;
             --heading-color: #e6edf3;
             --shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        /* Light theme - activates when VS Code is in light mode */
+        body.vscode-light {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f6f8fa;
+            --bg-tertiary: #eaeef2;
+            --text-primary: #1f2328;
+            --text-secondary: #656d76;
+            --text-muted: #8c959f;
+            --border-color: #d0d7de;
+            --accent-blue: #0969da;
+            --accent-purple: #8250df;
+            --diff-add-bg: rgba(46, 160, 67, 0.12);
+            --diff-add-border: #1a7f37;
+            --diff-add-text: #1a7f37;
+            --diff-add-gutter: #1a7f37;
+            --diff-remove-bg: rgba(255, 129, 130, 0.15);
+            --diff-remove-border: #cf222e;
+            --diff-remove-text: #cf222e;
+            --diff-remove-gutter: #cf222e;
+            --code-bg: #f6f8fa;
+            --link-color: #0969da;
+            --heading-color: #1f2328;
+            --shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
+        }
+
+        /* High contrast theme */
+        body.vscode-high-contrast {
+            --bg-primary: #000000;
+            --bg-secondary: #0a0a0a;
+            --bg-tertiary: #1a1a1a;
+            --text-primary: #ffffff;
+            --text-secondary: #cccccc;
+            --text-muted: #999999;
+            --border-color: #6fc3df;
+            --accent-blue: #6fc3df;
+            --accent-purple: #b180d7;
+            --diff-add-bg: rgba(0, 255, 0, 0.2);
+            --diff-add-border: #00ff00;
+            --diff-add-text: #00ff00;
+            --diff-add-gutter: #00ff00;
+            --diff-remove-bg: rgba(255, 0, 0, 0.2);
+            --diff-remove-border: #ff0000;
+            --diff-remove-text: #ff6666;
+            --diff-remove-gutter: #ff0000;
+            --code-bg: #1a1a1a;
+            --link-color: #6fc3df;
+            --heading-color: #ffffff;
+            --shadow: 0 0 0 1px #6fc3df;
         }
 
         * {
@@ -395,6 +446,63 @@ export class MarkdownDiffPreviewPanel {
             background: var(--bg-secondary);
         }
 
+        /* Table-level diff: entire table is new */
+        .diff-table-wrapper {
+            position: relative;
+            margin: 0 0 16px;
+        }
+
+        .diff-table-wrapper.added {
+            border-left: 4px solid var(--diff-add-border);
+            padding-left: 12px;
+            margin-left: -16px;
+        }
+
+        .diff-table-wrapper.added::before {
+            content: '+';
+            position: absolute;
+            left: -8px;
+            top: 8px;
+            color: var(--diff-add-text);
+            font-weight: bold;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .diff-table-wrapper.added table {
+            background: var(--diff-add-bg);
+        }
+
+        /* Row-level diff within mixed tables: subtle indicator */
+        tr.diff-row-added {
+            background: var(--diff-add-bg) !important;
+        }
+
+        tr.diff-row-added td {
+            border-left-color: var(--diff-add-border);
+        }
+
+        tr.diff-row-added td:first-child {
+            border-left: 3px solid var(--diff-add-border);
+        }
+
+        /* Small + badge for added rows */
+        tr.diff-row-added td:first-child::before {
+            content: '+';
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            line-height: 14px;
+            text-align: center;
+            font-size: 10px;
+            font-weight: bold;
+            color: var(--diff-add-text);
+            background: var(--diff-add-border);
+            border-radius: 3px;
+            margin-right: 6px;
+            font-family: monospace;
+        }
+
         /* Horizontal Rule */
         hr {
             border: 0;
@@ -443,11 +551,8 @@ export class MarkdownDiffPreviewPanel {
             background: var(--diff-remove-bg);
             border-left: 4px solid var(--diff-remove-border);
             border-radius: 0;
-            font-family: 'SF Mono', 'Fira Code', monospace;
-            font-size: 0.875em;
             color: var(--diff-remove-text);
-            white-space: pre-wrap;
-            opacity: 0.8;
+            opacity: 0.85;
         }
 
         .diff-removed-block::before {
@@ -468,6 +573,44 @@ export class MarkdownDiffPreviewPanel {
             letter-spacing: 0.5px;
             color: var(--diff-remove-text);
             opacity: 0.7;
+        }
+
+        /* Rendered removed content */
+        .diff-removed-block .removed-content {
+            color: var(--diff-remove-text);
+            margin: 0;
+            opacity: 0.9;
+        }
+
+        .diff-removed-block h1.removed-content,
+        .diff-removed-block h2.removed-content,
+        .diff-removed-block h3.removed-content,
+        .diff-removed-block h4.removed-content,
+        .diff-removed-block h5.removed-content,
+        .diff-removed-block h6.removed-content {
+            border-bottom: none;
+            padding-bottom: 0;
+            margin: 4px 0;
+            font-size: 1em;
+        }
+
+        .diff-removed-block h1.removed-content { font-size: 1.4em; }
+        .diff-removed-block h2.removed-content { font-size: 1.2em; }
+        .diff-removed-block h3.removed-content { font-size: 1.1em; }
+
+        .diff-removed-block p.removed-content {
+            margin: 4px 0;
+        }
+
+        .diff-removed-block li.removed-content {
+            margin-left: 20px;
+            list-style: disc;
+        }
+
+        .diff-removed-block blockquote.removed-content {
+            border-left-color: var(--diff-remove-border);
+            margin: 4px 0;
+            padding: 4px 12px;
         }
 
         /* Line numbers */

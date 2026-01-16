@@ -19,6 +19,9 @@ export async function renderMarkdownWithDiff(
     let listType: 'ul' | 'ol' = 'ul';
     let listItems: string[] = [];
     let listStartLine = 0;
+    let inTable = false;
+    let tableRows: { line: string; lineNumber: number }[] = [];
+    let tableStartLine = 0;
 
     const escapeHtml = (text: string): string => {
         return text
@@ -55,6 +58,38 @@ export async function renderMarkdownWithDiff(
         return result;
     };
 
+    const renderRemovedLine = (line: string): string => {
+        // Render a single line of removed content as markdown
+        const trimmed = line.trim();
+        
+        // Headers
+        const headerMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if (headerMatch) {
+            const level = headerMatch[1].length;
+            return `<h${level} class="removed-content">${parseInline(headerMatch[2])}</h${level}>`;
+        }
+        
+        // List items
+        if (/^[-*+]\s+/.test(trimmed)) {
+            return `<li class="removed-content">${parseInline(trimmed.replace(/^[-*+]\s+/, ''))}</li>`;
+        }
+        if (/^\d+\.\s+/.test(trimmed)) {
+            return `<li class="removed-content">${parseInline(trimmed.replace(/^\d+\.\s+/, ''))}</li>`;
+        }
+        
+        // Blockquote
+        if (trimmed.startsWith('>')) {
+            return `<blockquote class="removed-content"><p>${parseInline(trimmed.slice(1).trim())}</p></blockquote>`;
+        }
+        
+        // Regular paragraph/text
+        if (trimmed) {
+            return `<p class="removed-content">${parseInline(trimmed)}</p>`;
+        }
+        
+        return '';
+    };
+
     const wrapWithDiff = (content: string, lineNumber: number, isBlock: boolean = false): string => {
         const isAdded = addedLines.has(lineNumber);
         const removedContent = removedLines.get(lineNumber);
@@ -63,8 +98,9 @@ export async function renderMarkdownWithDiff(
         
         // Show removed content before this line if any
         if (removedContent) {
-            const removedHtml = escapeHtml(removedContent);
-            wrapped += `<div class="diff-removed-block"><span class="diff-removed-label">removed</span>${removedHtml}</div>`;
+            const removedLines = removedContent.split('\n');
+            const renderedRemoved = removedLines.map(renderRemovedLine).join('');
+            wrapped += `<div class="diff-removed-block"><span class="diff-removed-label">removed</span>${renderedRemoved}</div>`;
         }
         
         if (isAdded) {
@@ -100,6 +136,121 @@ export async function renderMarkdownWithDiff(
         }
     };
 
+    const flushTable = () => {
+        if (inTable && tableRows.length > 0) {
+            // Check if entire table is new (all content rows are added)
+            const contentRows = tableRows.filter(({ line }) => 
+                !/^\|?\s*[-:]+[-|\s:]*\|?\s*$/.test(line)
+            );
+            const allRowsAdded = contentRows.length > 0 && 
+                contentRows.every(({ lineNumber }) => addedLines.has(lineNumber));
+            const someRowsAdded = contentRows.some(({ lineNumber }) => addedLines.has(lineNumber));
+
+            let tableHtml = '<table>';
+            let isHeader = true;
+            let skipNext = false;
+
+            for (let i = 0; i < tableRows.length; i++) {
+                if (skipNext) {
+                    skipNext = false;
+                    continue;
+                }
+
+                const { line, lineNumber } = tableRows[i];
+                
+                // Check if this is a separator row (|---|---|)
+                if (/^\|?\s*[-:]+[-|\s:]*\|?\s*$/.test(line)) {
+                    continue;
+                }
+
+                const cells = line
+                    .split('|')
+                    .map(cell => cell.trim())
+                    .filter((cell, idx, arr) => idx !== 0 || cell !== '') // Remove empty first cell
+                    .filter((cell, idx, arr) => idx !== arr.length - 1 || cell !== ''); // Remove empty last cell
+
+                const isAdded = addedLines.has(lineNumber);
+                
+                // Use subtle row highlighting only for mixed tables (not all-new tables)
+                let rowClass = '';
+                if (isAdded && !allRowsAdded) {
+                    rowClass = ' class="diff-row-added" data-line="' + lineNumber + '"';
+                } else if (isAdded) {
+                    rowClass = ' data-line="' + lineNumber + '"';
+                }
+                
+                const cellTag = isHeader ? 'th' : 'td';
+
+                tableHtml += `<tr${rowClass}>`;
+                cells.forEach(cell => {
+                    tableHtml += `<${cellTag}>${parseInline(cell)}</${cellTag}>`;
+                });
+                tableHtml += '</tr>';
+
+                // Check if next row is separator (means current was header)
+                if (isHeader && i + 1 < tableRows.length) {
+                    const nextLine = tableRows[i + 1].line;
+                    if (/^\|?\s*[-:]+[-|\s:]*\|?\s*$/.test(nextLine)) {
+                        isHeader = false;
+                        skipNext = true;
+                    } else {
+                        isHeader = false;
+                    }
+                } else {
+                    isHeader = false;
+                }
+            }
+
+            tableHtml += '</table>';
+
+            // Wrap entire table if all rows are added
+            if (allRowsAdded) {
+                html += `<div class="diff-table-wrapper added" data-line="${tableStartLine}">${tableHtml}</div>`;
+            } else {
+                html += tableHtml;
+            }
+
+            tableRows = [];
+            inTable = false;
+        }
+    };
+
+    const isTableRow = (line: string): boolean => {
+        const trimmed = line.trim();
+        
+        // Not a table if it's a list item (even if it contains |)
+        if (/^[-*+]\s/.test(trimmed) || /^\d+\.\s/.test(trimmed)) {
+            return false;
+        }
+        
+        // Not a table if it's a blockquote
+        if (trimmed.startsWith('>')) {
+            return false;
+        }
+        
+        // A table row should either:
+        // 1. Start and end with | (proper table format)
+        // 2. Or have at least 2 pipes indicating multiple cells
+        // Also check it's not just a pipe in link text like [text | more](url)
+        
+        // If line starts with |, it's likely a table
+        if (trimmed.startsWith('|')) {
+            return true;
+        }
+        
+        // Count pipes that are NOT inside [...] brackets (links/images)
+        let pipeCount = 0;
+        let inBrackets = 0;
+        for (const char of trimmed) {
+            if (char === '[') inBrackets++;
+            else if (char === ']') inBrackets = Math.max(0, inBrackets - 1);
+            else if (char === '|' && inBrackets === 0) pipeCount++;
+        }
+        
+        // Need at least 2 unbracketed pipes to be a table (separating cells)
+        return pipeCount >= 2;
+    };
+
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const lineNumber = i + 1;
@@ -113,6 +264,7 @@ export async function renderMarkdownWithDiff(
         if (line.startsWith('```')) {
             if (!inCodeBlock) {
                 flushList();
+                flushTable();
                 inCodeBlock = true;
                 codeBlockLang = line.slice(3).trim();
                 codeBlockContent = '';
@@ -154,6 +306,7 @@ export async function renderMarkdownWithDiff(
         // Empty line
         if (line.trim() === '') {
             flushList();
+            flushTable();
             // Check for removed content here
             const removedContent = removedLines.get(lineNumber);
             if (removedContent) {
@@ -162,10 +315,24 @@ export async function renderMarkdownWithDiff(
             continue;
         }
 
+        // Table rows
+        if (isTableRow(line)) {
+            if (!inTable) {
+                flushList();
+                inTable = true;
+                tableStartLine = lineNumber;
+            }
+            tableRows.push({ line, lineNumber });
+            continue;
+        } else if (inTable) {
+            flushTable();
+        }
+
         // Headers
         const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
         if (headerMatch) {
             flushList();
+            flushTable();
             const level = headerMatch[1].length;
             const content = parseInline(headerMatch[2]);
             const headerHtml = `<h${level}>${content}</h${level}>`;
@@ -176,6 +343,7 @@ export async function renderMarkdownWithDiff(
         // Horizontal rule
         if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
             flushList();
+            flushTable();
             html += '<hr>';
             continue;
         }
@@ -183,6 +351,7 @@ export async function renderMarkdownWithDiff(
         // Blockquote
         if (line.startsWith('>')) {
             flushList();
+            flushTable();
             const content = parseInline(line.slice(1).trim());
             const quoteHtml = `<blockquote><p>${content}</p></blockquote>`;
             html += wrapWithDiff(quoteHtml, lineNumber, true);
@@ -217,13 +386,15 @@ export async function renderMarkdownWithDiff(
 
         // Paragraph
         flushList();
+        flushTable();
         const content = parseInline(line);
         const pHtml = `<p>${content}</p>`;
         html += wrapWithDiff(pHtml, lineNumber, true);
     }
 
-    // Flush any remaining list
+    // Flush any remaining list or table
     flushList();
+    flushTable();
 
     // Check for any removed content at the very end
     const lastLineRemoved = removedLines.get(lines.length + 1);
