@@ -86,6 +86,12 @@ export class MarkdownDiffPreviewPanel {
                     case 'updateElement':
                         await this._updateSourceElement(message.line, message.elementPath);
                         break;
+                    case 'undo':
+                        await this._executeUndoRedo('undo');
+                        break;
+                    case 'redo':
+                        await this._executeUndoRedo('redo');
+                        break;
                 }
             },
             null,
@@ -190,6 +196,29 @@ export class MarkdownDiffPreviewPanel {
 
     private _escapeRegex(str: string): string {
         return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    private async _executeUndoRedo(action: 'undo' | 'redo') {
+        if (!this._document) return;
+
+        // Find the editor for this document
+        let targetEditor = vscode.window.visibleTextEditors.find(
+            editor => editor.document.uri.toString() === this._document!.uri.toString()
+        );
+
+        // If not visible, open it
+        if (!targetEditor) {
+            const doc = await vscode.workspace.openTextDocument(this._document.uri);
+            targetEditor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One, false);
+        }
+
+        // Focus the editor temporarily to execute undo/redo
+        if (targetEditor) {
+            await vscode.window.showTextDocument(targetEditor.document, targetEditor.viewColumn, false);
+            await vscode.commands.executeCommand(action);
+            // Bring focus back to webview
+            this._panel.reveal(undefined, true);
+        }
     }
 
     private _replaceUnformattedText(lineText: string, originalText: string, newText: string): string {
@@ -1044,6 +1073,33 @@ export class MarkdownDiffPreviewPanel {
                 text: newText
             });
         }
+
+        function undo() {
+            vscode.postMessage({ command: 'undo' });
+        }
+
+        function redo() {
+            vscode.postMessage({ command: 'redo' });
+        }
+
+        // Global keyboard shortcuts for undo/redo
+        document.addEventListener('keydown', (e) => {
+            // Don't intercept if we're actively editing (let contenteditable handle it)
+            if (isEditing) return;
+            
+            if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    redo();
+                } else {
+                    undo();
+                }
+            }
+            if ((e.metaKey || e.ctrlKey) && e.key === 'y') {
+                e.preventDefault();
+                redo();
+            }
+        });
 
         // Track if we're currently editing
         let isEditing = false;
