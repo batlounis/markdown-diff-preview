@@ -83,11 +83,177 @@ export class MarkdownDiffPreviewPanel {
                     case 'refresh':
                         this._update();
                         break;
+                    case 'updateElement':
+                        await this._updateSourceElement(message.line, message.elementPath);
+                        break;
                 }
             },
             null,
             this._disposables
         );
+    }
+
+    private async _updateSourceElement(line: number, elementInfo: { 
+        elementType: string; 
+        originalText: string; 
+        newText: string;
+        path: Array<{ tag: string; index: number }>;
+    }) {
+        if (!this._document) return;
+
+        const lineIndex = line - 1;
+        if (lineIndex < 0 || lineIndex >= this._document.lineCount) return;
+
+        const originalLine = this._document.lineAt(lineIndex);
+        const lineText = originalLine.text;
+        const { elementType, originalText, newText } = elementInfo;
+
+        let updatedLineText = lineText;
+
+        // Map HTML element types back to markdown syntax
+        switch (elementType) {
+            case 'strong':
+                // Replace **originalText** or __originalText__ with **newText**
+                updatedLineText = lineText
+                    .replace(`**${originalText}**`, `**${newText}**`)
+                    .replace(`__${originalText}__`, `**${newText}**`);
+                break;
+                
+            case 'em':
+                // Replace *originalText* or _originalText_ with *newText*
+                updatedLineText = lineText
+                    .replace(`*${originalText}*`, `*${newText}*`)
+                    .replace(`_${originalText}_`, `*${newText}*`);
+                break;
+                
+            case 'del':
+                // Replace ~~originalText~~ with ~~newText~~
+                updatedLineText = lineText.replace(`~~${originalText}~~`, `~~${newText}~~`);
+                break;
+                
+            case 'code':
+                // Replace `originalText` with `newText`
+                updatedLineText = lineText.replace(`\`${originalText}\``, `\`${newText}\``);
+                break;
+                
+            case 'a':
+                // Replace link text [originalText](url) with [newText](url)
+                const linkRegex = new RegExp(`\\[${this._escapeRegex(originalText)}\\]\\(([^)]+)\\)`);
+                updatedLineText = lineText.replace(linkRegex, `[${newText}]($1)`);
+                break;
+                
+            case 'td':
+            case 'th':
+                // Table cell - find and replace the cell content
+                // This is trickier - need to find the right cell in the pipe-separated line
+                updatedLineText = lineText.replace(originalText, newText);
+                break;
+
+            case 'span':
+                // Plain text span - just replace the text directly
+                // Make sure we don't accidentally replace text inside formatting
+                updatedLineText = this._replaceUnformattedText(lineText, originalText, newText);
+                break;
+                
+            default:
+                // For plain elements (p, h1-h6, li), replace the content but preserve prefixes
+                const headerMatch = lineText.match(/^(#{1,6}\s+)/);
+                const listMatch = lineText.match(/^(\s*[-*+]\s+)/);
+                const olMatch = lineText.match(/^(\s*\d+\.\s+)/);
+                const quoteMatch = lineText.match(/^(>\s*)/);
+                
+                if (headerMatch) {
+                    updatedLineText = headerMatch[1] + newText;
+                } else if (listMatch) {
+                    updatedLineText = listMatch[1] + newText;
+                } else if (olMatch) {
+                    updatedLineText = olMatch[1] + newText;
+                } else if (quoteMatch) {
+                    updatedLineText = quoteMatch[1] + newText;
+                } else {
+                    updatedLineText = newText;
+                }
+                break;
+        }
+
+        // Only apply if there's a change
+        if (updatedLineText !== lineText) {
+            const edit = new vscode.WorkspaceEdit();
+            edit.replace(
+                this._document.uri,
+                originalLine.range,
+                updatedLineText
+            );
+            await vscode.workspace.applyEdit(edit);
+        }
+    }
+
+    private _escapeRegex(str: string): string {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    private _replaceUnformattedText(lineText: string, originalText: string, newText: string): string {
+        // Replace text that's NOT inside markdown formatting
+        // We need to be careful not to replace text that's inside **...**, *...*, etc.
+        
+        const escapedOriginal = this._escapeRegex(originalText);
+        
+        // Try to find the text that's not wrapped in formatting markers
+        // This regex looks for the text not preceded/followed by formatting chars
+        const patterns = [
+            // Not inside bold
+            `(?<!\\*\\*)${escapedOriginal}(?!\\*\\*)`,
+            // Not inside italic (single asterisk)
+            `(?<!\\*)${escapedOriginal}(?!\\*)`,
+            // Not inside code
+            `(?<!\`)${escapedOriginal}(?!\`)`,
+            // Not inside strikethrough
+            `(?<!~~)${escapedOriginal}(?!~~)`
+        ];
+        
+        // Simple approach: just replace if found and not inside formatting
+        // Check if the original text exists outside of formatting
+        let result = lineText;
+        
+        // Find all formatted regions and their positions
+        const formattedRegions: Array<{start: number; end: number}> = [];
+        
+        // Match **...**, *...*, `...`, ~~...~~, [...](...) 
+        const formatPatterns = [
+            /\*\*[^*]+\*\*/g,
+            /\*[^*]+\*/g,
+            /`[^`]+`/g,
+            /~~[^~]+~~/g,
+            /\[[^\]]+\]\([^)]+\)/g
+        ];
+        
+        for (const pattern of formatPatterns) {
+            let match;
+            while ((match = pattern.exec(lineText)) !== null) {
+                formattedRegions.push({ start: match.index, end: match.index + match[0].length });
+            }
+        }
+        
+        // Find the original text in the line
+        let searchStart = 0;
+        let foundIndex = -1;
+        
+        while ((foundIndex = lineText.indexOf(originalText, searchStart)) !== -1) {
+            // Check if this occurrence is inside a formatted region
+            const isInFormatted = formattedRegions.some(region => 
+                foundIndex >= region.start && foundIndex < region.end
+            );
+            
+            if (!isInFormatted) {
+                // Found it outside formatting - replace it
+                result = lineText.slice(0, foundIndex) + newText + lineText.slice(foundIndex + originalText.length);
+                break;
+            }
+            
+            searchStart = foundIndex + 1;
+        }
+        
+        return result;
     }
 
     private async _scrollEditorToLine(line: number) {
@@ -712,6 +878,31 @@ export class MarkdownDiffPreviewPanel {
             filter: brightness(1.15);
         }
 
+        /* Editing state */
+        [contenteditable="true"],
+        .editing {
+            outline: 2px solid var(--accent-blue);
+            outline-offset: 2px;
+            border-radius: 4px;
+            background: var(--bg-secondary) !important;
+            padding: 4px 8px;
+            min-height: 1.5em;
+        }
+
+        [contenteditable="true"]:focus {
+            outline-color: var(--accent-purple);
+        }
+
+        /* Plain text spans for atomic editing */
+        .plain-text {
+            cursor: pointer;
+        }
+
+        .plain-text:hover {
+            background: var(--bg-tertiary);
+            border-radius: 2px;
+        }
+
         /* Legend */
         .legend {
             display: flex;
@@ -845,26 +1036,187 @@ export class MarkdownDiffPreviewPanel {
             });
         }
 
-        // Add click handlers to ALL elements with data-line
-        document.querySelectorAll('[data-line]').forEach(el => {
-            el.style.cursor = 'pointer';
-            el.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const line = parseInt(el.dataset.line);
-                if (line) scrollToLine(line);
+        function updateElement(line, elementPath, newText) {
+            vscode.postMessage({
+                command: 'updateElement',
+                line: line,
+                elementPath: elementPath,
+                text: newText
             });
+        }
+
+        // Track if we're currently editing
+        let isEditing = false;
+        let editingElement = null;
+        let originalText = '';
+
+        // Find the smallest editable element from a click target
+        function findEditableElement(target) {
+            // These are the atomic editable elements
+            const editableTags = ['STRONG', 'EM', 'DEL', 'CODE', 'A', 'TD', 'TH'];
+            
+            // Check if we clicked on a plain-text span (atomic text segment)
+            if (target.classList?.contains('plain-text')) {
+                return target;
+            }
+            
+            // Check if we clicked directly on an editable element
+            if (editableTags.includes(target.tagName)) {
+                return target;
+            }
+            
+            // Check parents up to the data-line element
+            let current = target;
+            while (current && !current.dataset?.line) {
+                if (current.classList?.contains('plain-text')) {
+                    return current;
+                }
+                if (editableTags.includes(current.tagName)) {
+                    return current;
+                }
+                current = current.parentElement;
+            }
+            
+            // If no special element found, return the data-line element itself
+            // but only for simple elements (not tables, code blocks)
+            // and only if it has no child elements (pure text)
+            if (current?.dataset?.line) {
+                const tag = current.tagName;
+                if (tag === 'TR' || tag === 'PRE' || tag === 'TABLE') return null;
+                if (current.closest('.diff-removed-block')) return null;
+                
+                // Only make the whole element editable if it has no formatted children
+                const hasFormattedChildren = current.querySelector('strong, em, del, code, a, .plain-text');
+                if (!hasFormattedChildren) {
+                    return current;
+                }
+                
+                // Don't fall back to whole element if it has mixed content
+                return null;
+            }
+            
+            return null;
+        }
+
+        // Get the path to an element within its data-line ancestor (for syncing)
+        function getElementPath(element) {
+            const path = [];
+            let current = element;
+            
+            while (current && !current.dataset?.line) {
+                const parent = current.parentElement;
+                if (parent) {
+                    const index = Array.from(parent.children).indexOf(current);
+                    path.unshift({ tag: current.tagName.toLowerCase(), index: index });
+                }
+                current = parent;
+            }
+            
+            return path;
+        }
+
+        // Get the data-line value from an element or its ancestors
+        function getLineNumber(element) {
+            let current = element;
+            while (current) {
+                if (current.dataset?.line) {
+                    return parseInt(current.dataset.line);
+                }
+                current = current.parentElement;
+            }
+            return null;
+        }
+
+        // Single click handler for navigation
+        document.querySelector('.content').addEventListener('click', (e) => {
+            if (isEditing) return;
+            
+            const lineEl = e.target.closest('[data-line]');
+            if (lineEl) {
+                const line = parseInt(lineEl.dataset.line);
+                if (line) scrollToLine(line);
+            }
         });
 
-        // Also make content clickable by finding nearest data-line ancestor or using line mapping
-        document.querySelector('.content').addEventListener('click', (e) => {
-            // Check if we clicked something with data-line
-            let target = e.target;
-            while (target && target !== e.currentTarget) {
-                if (target.dataset && target.dataset.line) {
-                    return; // Already handled by specific handler
-                }
-                target = target.parentElement;
+        // Double click handler for editing
+        document.querySelector('.content').addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const editTarget = findEditableElement(e.target);
+            if (!editTarget) return;
+            
+            isEditing = true;
+            editingElement = editTarget;
+            originalText = editTarget.textContent || '';
+            
+            editTarget.contentEditable = 'true';
+            editTarget.classList.add('editing');
+            editTarget.focus();
+            
+            // Place cursor at click position or select all
+            const sel = window.getSelection();
+            if (sel.rangeCount > 0) {
+                // Keep cursor where user clicked
+            } else {
+                const range = document.createRange();
+                range.selectNodeContents(editTarget);
+                sel.removeAllRanges();
+                sel.addRange(range);
             }
+        });
+
+        // Handle blur (finish editing)
+        document.addEventListener('focusout', (e) => {
+            if (!isEditing || !editingElement) return;
+            if (editingElement.contains(e.relatedTarget)) return;
+            
+            finishEditing(false);
+        });
+
+        // Handle keyboard in editing mode
+        document.addEventListener('keydown', (e) => {
+            if (!isEditing || !editingElement) return;
+            
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                finishEditing(false);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                finishEditing(true); // cancel
+            }
+        });
+
+        function finishEditing(cancel) {
+            if (!editingElement) return;
+            
+            const el = editingElement;
+            el.contentEditable = 'false';
+            el.classList.remove('editing');
+            
+            if (cancel) {
+                el.textContent = originalText;
+            } else {
+                const newText = el.textContent || '';
+                if (newText !== originalText) {
+                    const line = getLineNumber(el);
+                    const path = getElementPath(el);
+                    const elementType = el.tagName.toLowerCase();
+                    
+                    if (line) {
+                        updateElement(line, { path, elementType, originalText, newText });
+                    }
+                }
+            }
+            
+            isEditing = false;
+            editingElement = null;
+            originalText = '';
+        }
+
+        // Add cursor pointer to clickable elements
+        document.querySelectorAll('[data-line]').forEach(el => {
+            el.style.cursor = 'pointer';
         });
     </script>
 </body>

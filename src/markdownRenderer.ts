@@ -55,7 +55,48 @@ export async function renderMarkdownWithDiff(
         // Images
         result = result.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />');
         
+        // Wrap plain text segments (between tags) in spans for atomic editing
+        // Match text that's not inside a tag
+        result = wrapPlainTextSegments(result);
+        
         return result;
+    };
+
+    const wrapPlainTextSegments = (html: string): string => {
+        // If there are no tags, it's all plain text - wrap the whole thing
+        if (!/<[^>]+>/.test(html)) {
+            return html.trim() ? `<span class="plain-text">${html}</span>` : html;
+        }
+        
+        // Split by tags, wrap non-empty text segments
+        const parts: string[] = [];
+        let lastIndex = 0;
+        const tagRegex = /<[^>]+>/g;
+        let match;
+        
+        while ((match = tagRegex.exec(html)) !== null) {
+            // Text before this tag
+            const textBefore = html.slice(lastIndex, match.index);
+            if (textBefore.trim()) {
+                parts.push(`<span class="plain-text">${textBefore}</span>`);
+            } else if (textBefore) {
+                parts.push(textBefore); // preserve whitespace without wrapping
+            }
+            
+            // The tag itself
+            parts.push(match[0]);
+            lastIndex = match.index + match[0].length;
+        }
+        
+        // Text after the last tag
+        const textAfter = html.slice(lastIndex);
+        if (textAfter.trim()) {
+            parts.push(`<span class="plain-text">${textAfter}</span>`);
+        } else if (textAfter) {
+            parts.push(textAfter);
+        }
+        
+        return parts.join('');
     };
 
     const renderRemovedLine = (line: string): string => {
