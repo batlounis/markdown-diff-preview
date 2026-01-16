@@ -98,11 +98,12 @@ export async function renderMarkdownWithDiff(
         
         // Show removed content before this line if any
         if (removedContent) {
-            const removedLines = removedContent.split('\n');
-            const renderedRemoved = removedLines.map(renderRemovedLine).join('');
+            const removedLinesArr = removedContent.split('\n');
+            const renderedRemoved = removedLinesArr.map(renderRemovedLine).join('');
             wrapped += `<div class="diff-removed-block"><span class="diff-removed-label">removed</span>${renderedRemoved}</div>`;
         }
         
+        // Always add data-line for click-to-navigate, add diff styling if added
         if (isAdded) {
             const lineNumHtml = showLineNumbers ? `<span class="line-number">${lineNumber}</span>` : '';
             if (isBlock) {
@@ -111,7 +112,13 @@ export async function renderMarkdownWithDiff(
                 wrapped += `<span class="diff-line added clickable" data-line="${lineNumber}">${lineNumHtml}${content}</span>`;
             }
         } else {
-            wrapped += content;
+            // Add data-line to non-diff content too for click-to-navigate
+            if (isBlock) {
+                // Inject data-line into the first tag of content
+                wrapped += content.replace(/^<(\w+)/, `<$1 data-line="${lineNumber}"`);
+            } else {
+                wrapped += content;
+            }
         }
         
         return wrapped;

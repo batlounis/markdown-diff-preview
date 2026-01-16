@@ -90,11 +90,27 @@ export class MarkdownDiffPreviewPanel {
         );
     }
 
-    private _scrollEditorToLine(line: number) {
-        const editor = vscode.window.activeTextEditor;
-        if (editor && this._document && editor.document.uri.toString() === this._document.uri.toString()) {
+    private async _scrollEditorToLine(line: number) {
+        if (!this._document) return;
+
+        // Find the editor showing this document (may not be active since webview has focus)
+        let targetEditor = vscode.window.visibleTextEditors.find(
+            editor => editor.document.uri.toString() === this._document!.uri.toString()
+        );
+
+        // If not visible, open the document
+        if (!targetEditor) {
+            const doc = await vscode.workspace.openTextDocument(this._document.uri);
+            targetEditor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+        }
+
+        if (targetEditor) {
             const position = new vscode.Position(line - 1, 0);
-            editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+            targetEditor.revealRange(
+                new vscode.Range(position, position), 
+                vscode.TextEditorRevealType.InCenter
+            );
+            targetEditor.selection = new vscode.Selection(position, position);
         }
     }
 
@@ -675,6 +691,22 @@ export class MarkdownDiffPreviewPanel {
             filter: brightness(1.1);
         }
 
+        /* All elements with data-line are clickable */
+        [data-line] {
+            cursor: pointer;
+            transition: background-color 0.15s ease;
+        }
+
+        [data-line]:hover {
+            background-color: var(--bg-tertiary);
+            border-radius: 4px;
+        }
+
+        .diff-line[data-line]:hover {
+            background-color: unset;
+            filter: brightness(1.15);
+        }
+
         /* Legend */
         .legend {
             display: flex;
@@ -808,12 +840,26 @@ export class MarkdownDiffPreviewPanel {
             });
         }
 
-        // Add click handlers to diff lines
-        document.querySelectorAll('.diff-line[data-line]').forEach(el => {
-            el.addEventListener('click', () => {
+        // Add click handlers to ALL elements with data-line
+        document.querySelectorAll('[data-line]').forEach(el => {
+            el.style.cursor = 'pointer';
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
                 const line = parseInt(el.dataset.line);
                 if (line) scrollToLine(line);
             });
+        });
+
+        // Also make content clickable by finding nearest data-line ancestor or using line mapping
+        document.querySelector('.content').addEventListener('click', (e) => {
+            // Check if we clicked something with data-line
+            let target = e.target;
+            while (target && target !== e.currentTarget) {
+                if (target.dataset && target.dataset.line) {
+                    return; // Already handled by specific handler
+                }
+                target = target.parentElement;
+            }
         });
     </script>
 </body>
