@@ -105,12 +105,17 @@ export class MarkdownDiffPreviewPanel {
         }
 
         if (targetEditor) {
-            const position = new vscode.Position(line - 1, 0);
+            const lineIndex = line - 1;
+            const lineText = targetEditor.document.lineAt(lineIndex);
+            const lineStart = new vscode.Position(lineIndex, 0);
+            const lineEnd = new vscode.Position(lineIndex, lineText.text.length);
+            
+            // Select the entire line
+            targetEditor.selection = new vscode.Selection(lineStart, lineEnd);
             targetEditor.revealRange(
-                new vscode.Range(position, position), 
+                new vscode.Range(lineStart, lineEnd), 
                 vscode.TextEditorRevealType.InCenter
             );
-            targetEditor.selection = new vscode.Selection(position, position);
         }
     }
 

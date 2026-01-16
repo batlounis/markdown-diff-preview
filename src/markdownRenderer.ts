@@ -134,7 +134,8 @@ export async function renderMarkdownWithDiff(
                 if (isAdded) {
                     html += `<li class="diff-line added" data-line="${lineNum}">${item}</li>`;
                 } else {
-                    html += `<li>${item}</li>`;
+                    // Always add data-line for click-to-navigate
+                    html += `<li data-line="${lineNum}">${item}</li>`;
                 }
             });
             html += `</${tag}>`;
@@ -178,11 +179,12 @@ export async function renderMarkdownWithDiff(
 
                 const isAdded = addedLines.has(lineNumber);
                 
+                // Always add data-line for click-to-navigate
                 // Use subtle row highlighting only for mixed tables (not all-new tables)
                 let rowClass = '';
                 if (isAdded && !allRowsAdded) {
                     rowClass = ' class="diff-row-added" data-line="' + lineNumber + '"';
-                } else if (isAdded) {
+                } else {
                     rowClass = ' data-line="' + lineNumber + '"';
                 }
                 
@@ -287,7 +289,8 @@ export async function renderMarkdownWithDiff(
                     if (isAdded) {
                         codeHtml += `<span class="diff-line added" data-line="${codeLineNum}">${escapedLine}</span>\n`;
                     } else {
-                        codeHtml += escapedLine + '\n';
+                        // Always add data-line for click-to-navigate
+                        codeHtml += `<span data-line="${codeLineNum}">${escapedLine}</span>\n`;
                     }
                 });
                 codeHtml += '</code></pre>';
