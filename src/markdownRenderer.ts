@@ -110,14 +110,6 @@ export async function renderMarkdownWithDiff(
             return `<h${level} class="removed-content">${parseInline(headerMatch[2])}</h${level}>`;
         }
         
-        // List items
-        if (/^[-*+]\s+/.test(trimmed)) {
-            return `<li class="removed-content">${parseInline(trimmed.replace(/^[-*+]\s+/, ''))}</li>`;
-        }
-        if (/^\d+\.\s+/.test(trimmed)) {
-            return `<li class="removed-content">${parseInline(trimmed.replace(/^\d+\.\s+/, ''))}</li>`;
-        }
-        
         // Blockquote
         if (trimmed.startsWith('>')) {
             return `<blockquote class="removed-content"><p>${parseInline(trimmed.slice(1).trim())}</p></blockquote>`;
@@ -131,6 +123,51 @@ export async function renderMarkdownWithDiff(
         return '';
     };
 
+    const renderRemovedBlock = (removedContent: string): string => {
+        const removedLinesArr = removedContent.split('\n');
+        let renderedRemoved = '';
+        let inRemovedList = false;
+        let removedListType: 'ul' | 'ol' = 'ul';
+
+        const flushRemovedList = () => {
+            if (inRemovedList) {
+                renderedRemoved += `</${removedListType}>`;
+                inRemovedList = false;
+            }
+        };
+
+        removedLinesArr.forEach(line => {
+            const trimmed = line.trim();
+            if (!trimmed) {
+                flushRemovedList();
+                return;
+            }
+
+            const ulMatch = trimmed.match(/^[-*+]\s+(.+)$/);
+            const olMatch = trimmed.match(/^\d+\.\s+(.+)$/);
+
+            if (ulMatch || olMatch) {
+                const type = ulMatch ? 'ul' : 'ol';
+                const itemText = parseInline((ulMatch || olMatch)![1]);
+                if (!inRemovedList || removedListType !== type) {
+                    flushRemovedList();
+                    removedListType = type;
+                    renderedRemoved += `<${type} class="removed-content-list">`;
+                    inRemovedList = true;
+                }
+                renderedRemoved += `<li class="removed-content">${itemText}</li>`;
+                return;
+            }
+
+            flushRemovedList();
+            renderedRemoved += renderRemovedLine(line);
+        });
+
+        flushRemovedList();
+
+        return `<div class="diff-removed-block"><span class="diff-removed-label">removed</span>${renderedRemoved}</div>`;
+    };
+
     const wrapWithDiff = (content: string, lineNumber: number, isBlock: boolean = false): string => {
         const isAdded = addedLines.has(lineNumber);
         const removedContent = removedLines.get(lineNumber);
@@ -139,9 +176,7 @@ export async function renderMarkdownWithDiff(
         
         // Show removed content before this line if any
         if (removedContent) {
-            const removedLinesArr = removedContent.split('\n');
-            const renderedRemoved = removedLinesArr.map(renderRemovedLine).join('');
-            wrapped += `<div class="diff-removed-block"><span class="diff-removed-label">removed</span>${renderedRemoved}</div>`;
+            wrapped += renderRemovedBlock(removedContent);
         }
         
         // Always add data-line for click-to-navigate, add diff styling if added
@@ -168,21 +203,67 @@ export async function renderMarkdownWithDiff(
     const flushList = () => {
         if (inList && listItems.length > 0) {
             const tag = listType;
-            html += `<${tag}>`;
+            let listHtml = '';
+            let listOpen = false;
             listItems.forEach((item, idx) => {
                 const lineNum = listStartLine + idx;
+                const removedContent = removedLines.get(lineNum);
+                if (removedContent) {
+                    if (listOpen) {
+                        listHtml += `</${tag}>`;
+                        listOpen = false;
+                    }
+                    listHtml += renderRemovedBlock(removedContent);
+                }
+                if (!listOpen) {
+                    listHtml += `<${tag}>`;
+                    listOpen = true;
+                }
                 const isAdded = addedLines.has(lineNum);
                 if (isAdded) {
-                    html += `<li class="diff-line added" data-line="${lineNum}">${item}</li>`;
+                    listHtml += `<li class="diff-line added" data-line="${lineNum}">${item}</li>`;
                 } else {
                     // Always add data-line for click-to-navigate
-                    html += `<li data-line="${lineNum}">${item}</li>`;
+                    listHtml += `<li data-line="${lineNum}">${item}</li>`;
                 }
             });
-            html += `</${tag}>`;
+            if (listOpen) {
+                listHtml += `</${tag}>`;
+            }
+            html += listHtml;
             listItems = [];
             inList = false;
         }
+    };
+
+    const parseTableCells = (line: string): string[] => {
+        return line
+            .split('|')
+            .map(cell => cell.trim())
+            .filter((cell, idx, arr) => idx !== 0 || cell !== '')
+            .filter((cell, idx, arr) => idx !== arr.length - 1 || cell !== '');
+    };
+
+    const renderRemovedTableRows = (removedContent: string, columnCount: number): string => {
+        const removedLinesArr = removedContent.split('\n');
+        let removedHtml = '';
+        removedLinesArr.forEach(removedLine => {
+            const trimmed = removedLine.trim();
+            if (!trimmed) return;
+            if (/^\|?\s*[-:]+[-|\s:]*\|?\s*$/.test(trimmed)) return;
+            if (isTableRow(removedLine)) {
+                const cells = parseTableCells(removedLine);
+                removedHtml += `<tr class="diff-row-removed">`;
+                cells.forEach(cell => {
+                    removedHtml += `<td>${parseInline(cell)}</td>`;
+                });
+                removedHtml += '</tr>';
+            } else {
+                const colspan = Math.max(columnCount, 1);
+                removedHtml += `<tr class="diff-row-removed"><td colspan="${colspan}">${parseInline(removedLine)}</td></tr>`;
+            }
+        });
+        return removedHtml;
     };
 
     const flushTable = () => {
@@ -198,6 +279,10 @@ export async function renderMarkdownWithDiff(
             let tableHtml = '<table>';
             let isHeader = true;
             let skipNext = false;
+            const columnCount = Math.max(
+                1,
+                ...contentRows.map(({ line }) => parseTableCells(line).length)
+            );
 
             for (let i = 0; i < tableRows.length; i++) {
                 if (skipNext) {
@@ -212,11 +297,12 @@ export async function renderMarkdownWithDiff(
                     continue;
                 }
 
-                const cells = line
-                    .split('|')
-                    .map(cell => cell.trim())
-                    .filter((cell, idx, arr) => idx !== 0 || cell !== '') // Remove empty first cell
-                    .filter((cell, idx, arr) => idx !== arr.length - 1 || cell !== ''); // Remove empty last cell
+                const removedContent = removedLines.get(lineNumber);
+                if (removedContent) {
+                    tableHtml += renderRemovedTableRows(removedContent, columnCount);
+                }
+
+                const cells = parseTableCells(line);
 
                 const isAdded = addedLines.has(lineNumber);
                 

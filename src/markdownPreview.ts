@@ -554,6 +554,10 @@ export class MarkdownDiffPreviewPanel {
             max-width: 900px;
             margin: 0 auto;
             padding: 32px 48px;
+            --diff-block-margin-x: -48px;
+            --diff-block-padding-x: 48px;
+            --diff-block-padding-left: 44px;
+            --diff-block-gutter-offset: 16px;
         }
 
         /* Typography */
@@ -719,6 +723,36 @@ export class MarkdownDiffPreviewPanel {
             font-family: monospace;
         }
 
+        /* Row-level removed indicator within mixed tables */
+        tr.diff-row-removed {
+            background: var(--diff-remove-bg) !important;
+        }
+
+        tr.diff-row-removed td {
+            border-left-color: var(--diff-remove-border);
+            color: var(--diff-remove-text);
+        }
+
+        tr.diff-row-removed td:first-child {
+            border-left: 3px solid var(--diff-remove-border);
+        }
+
+        tr.diff-row-removed td:first-child::before {
+            content: '−';
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            line-height: 14px;
+            text-align: center;
+            font-size: 10px;
+            font-weight: bold;
+            color: var(--diff-remove-text);
+            background: var(--diff-remove-border);
+            border-radius: 3px;
+            margin-right: 6px;
+            font-family: monospace;
+        }
+
         /* Horizontal Rule */
         hr {
             border: 0;
@@ -737,8 +771,8 @@ export class MarkdownDiffPreviewPanel {
         .diff-line {
             position: relative;
             display: block;
-            margin: 0 -48px;
-            padding: 2px 48px;
+            margin: 0 var(--diff-block-margin-x);
+            padding: 2px var(--diff-block-padding-x);
             border-radius: 0;
             transition: background-color 0.15s ease;
         }
@@ -746,13 +780,13 @@ export class MarkdownDiffPreviewPanel {
         .diff-line.added {
             background: var(--diff-add-bg);
             border-left: 4px solid var(--diff-add-border);
-            padding-left: 44px;
+            padding-left: var(--diff-block-padding-left);
         }
 
         .diff-line.added::before {
             content: '+';
             position: absolute;
-            left: 16px;
+            left: var(--diff-block-gutter-offset);
             color: var(--diff-add-text);
             font-weight: bold;
             font-family: monospace;
@@ -762,8 +796,8 @@ export class MarkdownDiffPreviewPanel {
         .diff-removed-block {
             position: relative;
             display: block;
-            margin: 8px -48px;
-            padding: 12px 48px 12px 44px;
+            margin: 8px var(--diff-block-margin-x);
+            padding: 12px var(--diff-block-padding-x) 12px var(--diff-block-padding-left);
             background: var(--diff-remove-bg);
             border-left: 4px solid var(--diff-remove-border);
             border-radius: 0;
@@ -774,7 +808,7 @@ export class MarkdownDiffPreviewPanel {
         .diff-removed-block::before {
             content: '−';
             position: absolute;
-            left: 16px;
+            left: var(--diff-block-gutter-offset);
             top: 12px;
             color: var(--diff-remove-text);
             font-weight: bold;
@@ -819,8 +853,15 @@ export class MarkdownDiffPreviewPanel {
         }
 
         .diff-removed-block li.removed-content {
-            margin-left: 20px;
-            list-style: disc;
+            margin: 4px 0;
+            list-style: none;
+        }
+
+        .diff-removed-block ul.removed-content-list,
+        .diff-removed-block ol.removed-content-list {
+            margin: 4px 0;
+            padding-left: 0;
+            list-style: none;
         }
 
         .diff-removed-block blockquote.removed-content {
