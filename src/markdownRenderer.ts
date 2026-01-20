@@ -16,9 +16,7 @@ export async function renderMarkdownWithDiff(
     let codeBlockLang = '';
     let codeBlockStartLine = 0;
     let inList = false;
-    let listType: 'ul' | 'ol' = 'ul';
-    let listItems: string[] = [];
-    let listStartLine = 0;
+    let listItems: { content: string; indent: number; lineNumber: number; type: 'ul' | 'ol' }[] = [];
     let inTable = false;
     let tableRows: { line: string; lineNumber: number }[] = [];
     let tableStartLine = 0;
@@ -202,35 +200,70 @@ export async function renderMarkdownWithDiff(
 
     const flushList = () => {
         if (inList && listItems.length > 0) {
-            const tag = listType;
-            let listHtml = '';
-            let listOpen = false;
-            listItems.forEach((item, idx) => {
-                const lineNum = listStartLine + idx;
-                const removedContent = removedLines.get(lineNum);
-                if (removedContent) {
-                    if (listOpen) {
-                        listHtml += `</${tag}>`;
-                        listOpen = false;
+            // Build nested list structure based on indentation
+            const buildNestedList = (
+                items: typeof listItems,
+                startIdx: number,
+                currentIndent: number
+            ): { html: string; endIdx: number } => {
+                if (startIdx >= items.length) {
+                    return { html: '', endIdx: startIdx };
+                }
+
+                const firstItem = items[startIdx];
+                const tag = firstItem.type;
+                let listHtml = `<${tag}>`;
+                let i = startIdx;
+
+                while (i < items.length) {
+                    const item = items[i];
+                    
+                    // If we encounter an item with less indentation than our level, we're done
+                    if (item.indent < currentIndent) {
+                        break;
                     }
-                    listHtml += renderRemovedBlock(removedContent);
+
+                    // If indentation matches our current level, add the item
+                    if (item.indent === currentIndent) {
+                        const lineNum = item.lineNumber;
+                        const removedContent = removedLines.get(lineNum);
+                        
+                        if (removedContent) {
+                            listHtml += `</${tag}>`;
+                            listHtml += renderRemovedBlock(removedContent);
+                            listHtml += `<${tag}>`;
+                        }
+
+                        const isAdded = addedLines.has(lineNum);
+                        const liClass = isAdded ? ' class="diff-line added"' : '';
+                        listHtml += `<li${liClass} data-line="${lineNum}">${item.content}`;
+                        
+                        // Look ahead to see if next items are nested under this one
+                        if (i + 1 < items.length && items[i + 1].indent > currentIndent) {
+                            const nested = buildNestedList(items, i + 1, items[i + 1].indent);
+                            listHtml += nested.html;
+                            i = nested.endIdx;
+                        } else {
+                            i++;
+                        }
+                        
+                        listHtml += '</li>';
+                    } else {
+                        // Deeper indentation than expected at this level - shouldn't happen
+                        // but handle gracefully by treating as nested
+                        const nested = buildNestedList(items, i, item.indent);
+                        listHtml += nested.html;
+                        i = nested.endIdx;
+                    }
                 }
-                if (!listOpen) {
-                    listHtml += `<${tag}>`;
-                    listOpen = true;
-                }
-                const isAdded = addedLines.has(lineNum);
-                if (isAdded) {
-                    listHtml += `<li class="diff-line added" data-line="${lineNum}">${item}</li>`;
-                } else {
-                    // Always add data-line for click-to-navigate
-                    listHtml += `<li data-line="${lineNum}">${item}</li>`;
-                }
-            });
-            if (listOpen) {
+
                 listHtml += `</${tag}>`;
-            }
-            html += listHtml;
+                return { html: listHtml, endIdx: i };
+            };
+
+            // Start with the indent of the first item
+            const result = buildNestedList(listItems, 0, listItems[0].indent);
+            html += result.html;
             listItems = [];
             inList = false;
         }
@@ -501,10 +534,14 @@ export async function renderMarkdownWithDiff(
             if (!inList) {
                 flushList();
                 inList = true;
-                listType = 'ul';
-                listStartLine = lineNumber;
             }
-            listItems.push(parseInline(ulMatch[2]));
+            const indent = ulMatch[1].length;
+            listItems.push({
+                content: parseInline(ulMatch[2]),
+                indent,
+                lineNumber,
+                type: 'ul'
+            });
             continue;
         }
 
@@ -514,10 +551,14 @@ export async function renderMarkdownWithDiff(
             if (!inList) {
                 flushList();
                 inList = true;
-                listType = 'ol';
-                listStartLine = lineNumber;
             }
-            listItems.push(parseInline(olMatch[2]));
+            const indent = olMatch[1].length;
+            listItems.push({
+                content: parseInline(olMatch[2]),
+                indent,
+                lineNumber,
+                type: 'ol'
+            });
             continue;
         }
 
