@@ -480,7 +480,7 @@ export async function renderMarkdownWithDiff(
             // Check for removed content here
             const removedContent = removedLines.get(lineNumber);
             if (removedContent) {
-                html += `<div class="diff-removed-block"><span class="diff-removed-label">removed</span>${escapeHtml(removedContent)}</div>`;
+                html += renderRemovedBlock(removedContent);
             }
             continue;
         }
@@ -577,7 +577,7 @@ export async function renderMarkdownWithDiff(
     // Check for any removed content at the very end
     const lastLineRemoved = removedLines.get(lines.length + 1);
     if (lastLineRemoved) {
-        html += `<div class="diff-removed-block"><span class="diff-removed-label">removed</span>${escapeHtml(lastLineRemoved)}</div>`;
+        html += renderRemovedBlock(lastLineRemoved);
     }
 
     return html || '<div class="empty-state"><div class="icon">📄</div><p>Empty document</p></div>';

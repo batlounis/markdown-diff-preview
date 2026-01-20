@@ -92,6 +92,9 @@ export class MarkdownDiffPreviewPanel {
                     case 'redo':
                         await this._executeUndoRedo('redo');
                         break;
+                    case 'selectLines':
+                        await this._selectLinesInEditor(message.startLine, message.endLine);
+                        break;
                 }
             },
             null,
@@ -310,6 +313,37 @@ export class MarkdownDiffPreviewPanel {
             targetEditor.revealRange(
                 new vscode.Range(lineStart, lineEnd), 
                 vscode.TextEditorRevealType.InCenter
+            );
+        }
+    }
+
+    private async _selectLinesInEditor(startLine: number, endLine: number) {
+        if (!this._document) return;
+
+        // Find the editor showing this document
+        let targetEditor = vscode.window.visibleTextEditors.find(
+            editor => editor.document.uri.toString() === this._document!.uri.toString()
+        );
+
+        // If not visible, open the document
+        if (!targetEditor) {
+            const doc = await vscode.workspace.openTextDocument(this._document.uri);
+            targetEditor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+        }
+
+        if (targetEditor) {
+            const startLineIndex = Math.max(0, startLine - 1);
+            const endLineIndex = Math.min(targetEditor.document.lineCount - 1, endLine - 1);
+            
+            const startPos = new vscode.Position(startLineIndex, 0);
+            const endLineText = targetEditor.document.lineAt(endLineIndex);
+            const endPos = new vscode.Position(endLineIndex, endLineText.text.length);
+            
+            // Select from start of first line to end of last line
+            targetEditor.selection = new vscode.Selection(startPos, endPos);
+            targetEditor.revealRange(
+                new vscode.Range(startPos, endPos), 
+                vscode.TextEditorRevealType.InCenterIfOutsideViewport
             );
         }
     }
@@ -1314,6 +1348,47 @@ export class MarkdownDiffPreviewPanel {
         // Add cursor pointer to clickable elements
         document.querySelectorAll('[data-line]').forEach(el => {
             el.style.cursor = 'pointer';
+        });
+
+        // Selection sync: when user selects text in preview, select corresponding lines in editor
+        let selectionTimeout = null;
+        
+        function getLineFromNode(node) {
+            // Handle text nodes by getting their parent element
+            const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+            if (!el) return null;
+            const lineEl = el.closest('[data-line]');
+            return lineEl ? parseInt(lineEl.dataset.line) : null;
+        }
+        
+        document.addEventListener('selectionchange', () => {
+            // Don't sync selection while editing
+            if (isEditing) return;
+            
+            // Debounce to avoid too many messages during selection drag
+            if (selectionTimeout) clearTimeout(selectionTimeout);
+            selectionTimeout = setTimeout(() => {
+                const sel = window.getSelection();
+                if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+                
+                const range = sel.getRangeAt(0);
+                
+                // Check if selection is within our content area
+                const contentEl = document.querySelector('.content');
+                if (!contentEl || !contentEl.contains(range.commonAncestorContainer)) return;
+                
+                // Find the data-line elements at the start and end of selection
+                const startLine = getLineFromNode(range.startContainer);
+                const endLine = getLineFromNode(range.endContainer);
+                
+                if (startLine && endLine) {
+                    vscode.postMessage({
+                        command: 'selectLines',
+                        startLine: Math.min(startLine, endLine),
+                        endLine: Math.max(startLine, endLine)
+                    });
+                }
+            }, 150); // 150ms debounce
         });
     </script>
 </body>
