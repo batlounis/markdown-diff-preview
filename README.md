@@ -27,13 +27,6 @@ A VS Code extension that shows a beautiful Markdown preview with **git diff high
 
 Or search for "Markdown Diff Preview" in the Extensions sidebar.
 
-### From VSIX
-
-1. Download the `.vsix` file from [Releases](https://github.com/batlounis/markdown-diff-preview/releases)
-2. Open VS Code
-3. Go to Extensions → `...` menu → "Install from VSIX..."
-4. Select the downloaded file
-
 ## Usage
 
 1. Open any Markdown file in a git repository
