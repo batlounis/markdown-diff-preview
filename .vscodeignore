@@ -9,6 +9,7 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 !**/*.d.ts
-node_modules/**
 .git/**
 *.vsix
+.npm-cache/**
+test-document.md
