@@ -5,3 +5,5 @@ node_modules/
 .DS_Store
 .npm-cache/
 test-document.md
+test.txt
+demo/

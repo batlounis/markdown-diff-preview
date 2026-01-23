@@ -2,32 +2,15 @@ import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
+import { parseDiff } from './core/diffParser';
+
+// Re-export types from core for backwards compatibility
+export { FileDiff, DiffHunk, DiffChange } from './core/types';
+export { parseDiff } from './core/diffParser';
+
+import type { FileDiff } from './core/types';
 
 const execAsync = promisify(exec);
-
-export interface DiffHunk {
-    oldStart: number;
-    oldLines: number;
-    newStart: number;
-    newLines: number;
-    changes: DiffChange[];
-}
-
-export interface DiffChange {
-    type: 'added' | 'removed' | 'context';
-    lineNumber: number;  // Line number in the new file
-    oldLineNumber?: number;  // Line number in the old file (for removed/context)
-    content: string;
-}
-
-export interface FileDiff {
-    filePath: string;
-    isNew: boolean;
-    isDeleted: boolean;
-    hunks: DiffHunk[];
-    addedLines: Set<number>;
-    removedLines: Map<number, string>;  // Maps new line position to removed content
-}
 
 export async function getGitDiff(document: vscode.TextDocument): Promise<FileDiff | null> {
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
@@ -103,109 +86,6 @@ async function isFileTracked(cwd: string, relativePath: string): Promise<boolean
     } catch {
         return false;
     }
-}
-
-function parseDiff(filePath: string, diffOutput: string): FileDiff {
-    const hunks: DiffHunk[] = [];
-    const addedLines = new Set<number>();
-    const removedLines = new Map<number, string>();
-
-    const lines = diffOutput.split('\n');
-    let currentHunk: DiffHunk | null = null;
-    let newLineNumber = 0;
-    let oldLineNumber = 0;
-    let pendingRemovals: string[] = [];
-    let removalInsertPoint = 0;
-
-    for (const line of lines) {
-        // Parse hunk header: @@ -oldStart,oldLines +newStart,newLines @@
-        const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
-        
-        if (hunkMatch) {
-            // Save pending removals from previous hunk
-            if (pendingRemovals.length > 0 && removalInsertPoint > 0) {
-                removedLines.set(removalInsertPoint, pendingRemovals.join('\n'));
-                pendingRemovals = [];
-            }
-
-            currentHunk = {
-                oldStart: parseInt(hunkMatch[1], 10),
-                oldLines: parseInt(hunkMatch[2] || '1', 10),
-                newStart: parseInt(hunkMatch[3], 10),
-                newLines: parseInt(hunkMatch[4] || '1', 10),
-                changes: []
-            };
-            hunks.push(currentHunk);
-            newLineNumber = currentHunk.newStart;
-            oldLineNumber = currentHunk.oldStart;
-            removalInsertPoint = newLineNumber;
-            continue;
-        }
-
-        if (!currentHunk) continue;
-
-        if (line.startsWith('+') && !line.startsWith('+++')) {
-            // Added line
-            const content = line.substring(1);
-            currentHunk.changes.push({
-                type: 'added',
-                lineNumber: newLineNumber,
-                content
-            });
-            addedLines.add(newLineNumber);
-            
-            // If we had pending removals, attach them before this addition
-            if (pendingRemovals.length > 0) {
-                removedLines.set(removalInsertPoint, pendingRemovals.join('\n'));
-                pendingRemovals = [];
-            }
-            removalInsertPoint = newLineNumber + 1;
-            newLineNumber++;
-        } else if (line.startsWith('-') && !line.startsWith('---')) {
-            // Removed line
-            const content = line.substring(1);
-            currentHunk.changes.push({
-                type: 'removed',
-                lineNumber: newLineNumber,
-                oldLineNumber: oldLineNumber,
-                content
-            });
-            pendingRemovals.push(content);
-            oldLineNumber++;
-        } else if (line.startsWith(' ') || line === '') {
-            // Context line
-            // First, flush any pending removals
-            if (pendingRemovals.length > 0) {
-                removedLines.set(removalInsertPoint, pendingRemovals.join('\n'));
-                pendingRemovals = [];
-            }
-            
-            const content = line.startsWith(' ') ? line.substring(1) : line;
-            currentHunk.changes.push({
-                type: 'context',
-                lineNumber: newLineNumber,
-                oldLineNumber: oldLineNumber,
-                content
-            });
-            newLineNumber++;
-            oldLineNumber++;
-            removalInsertPoint = newLineNumber;
-        }
-    }
-
-    // Flush any remaining pending removals
-    if (pendingRemovals.length > 0 && removalInsertPoint > 0) {
-        removedLines.set(removalInsertPoint, pendingRemovals.join('\n'));
-    }
-
-    return {
-        filePath,
-        isNew: false,
-        isDeleted: false,
-        hunks,
-        addedLines,
-        removedLines
-    };
 }
 
 export async function getGitBranch(document: vscode.TextDocument): Promise<string | null> {
