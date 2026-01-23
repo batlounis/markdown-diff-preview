@@ -3,9 +3,9 @@
   "displayName": "Markdown Diff Preview",
   "description": "A beautiful Markdown preview that highlights git diffs inline with green/red highlighting for added/removed lines",
   "version": "1.0.0",
-  "publisher": "YOUR_PUBLISHER_NAME",
+  "publisher": "batlounis",
   "author": {
-    "name": "Your Name"
+    "name": "Salim Batlouni"
   },
   "license": "MIT",
   "icon": "images/icon.png",
@@ -15,12 +15,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_USERNAME/markdown-diff-preview"
+    "url": "https://github.com/batlounis/markdown-diff-preview"
   },
   "bugs": {
-    "url": "https://github.com/YOUR_USERNAME/markdown-diff-preview/issues"
+    "url": "https://github.com/batlounis/markdown-diff-preview/issues"
   },
-  "homepage": "https://github.com/YOUR_USERNAME/markdown-diff-preview#readme",
+  "homepage": "https://github.com/batlounis/markdown-diff-preview#readme",
   "engines": {
     "vscode": "^1.85.0"
   },
