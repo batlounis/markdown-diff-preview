@@ -1,22 +1,43 @@
 {
   "name": "markdown-diff-preview",
   "displayName": "Markdown Diff Preview",
-  "description": "A beautiful Markdown preview that highlights git diffs inline",
-  "version": "0.0.1",
-  "publisher": "markdownai",
+  "description": "A beautiful Markdown preview that highlights git diffs inline with green/red highlighting for added/removed lines",
+  "version": "1.0.0",
+  "publisher": "YOUR_PUBLISHER_NAME",
+  "author": {
+    "name": "Your Name"
+  },
+  "license": "MIT",
+  "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#0d1117",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USERNAME/markdown-diff-preview"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR_USERNAME/markdown-diff-preview/issues"
+  },
+  "homepage": "https://github.com/YOUR_USERNAME/markdown-diff-preview#readme",
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
-    "Other",
-    "Visualization"
+    "Visualization",
+    "Other"
   ],
   "keywords": [
     "markdown",
     "preview",
     "git",
     "diff",
-    "documentation"
+    "documentation",
+    "git diff",
+    "markdown preview",
+    "live preview",
+    "changes"
   ],
   "activationEvents": [
     "onLanguage:markdown"
