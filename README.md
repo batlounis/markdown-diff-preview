@@ -6,7 +6,7 @@
 
 A VS Code extension that shows a beautiful Markdown preview with **git diff highlighting** inline. See exactly what changed in your documentation at a glance.
 
-![Preview Screenshot](https://via.placeholder.com/800x500/0d1117/58a6ff?text=Markdown+Diff+Preview)
+![Preview Screenshot](images/screenshot.png)
 
 ## Features
 

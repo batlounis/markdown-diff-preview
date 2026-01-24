@@ -3,7 +3,7 @@
  * This uses the actual rendering code from the extension (via core modules).
  * 
  * Usage: npx ts-node scripts/generate-demo.ts [diff-file] [output-file]
- * Default: npx ts-node scripts/generate-demo.ts test.txt demo/preview.html
+ * Default: npx ts-node scripts/generate-demo.ts demo/test.txt demo/preview.html
  */
 
 import * as fs from 'fs';
@@ -62,7 +62,7 @@ function generateHtml(content: string, fileName: string, addedCount: number, rem
 
 async function main() {
     const args = process.argv.slice(2);
-    const diffFile = args[0] || 'test.txt';
+    const diffFile = args[0] || 'demo/test.txt';
     const outputFile = args[1] || 'demo/preview.html';
 
     const projectRoot = path.resolve(__dirname, '..');
