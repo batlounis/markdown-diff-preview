@@ -2,7 +2,7 @@
   "name": "markdown-diff-preview",
   "displayName": "Markdown Diff Preview",
   "description": "A beautiful Markdown preview that highlights git diffs inline with green/red highlighting for added/removed lines",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "batlounis",
   "author": {
     "name": "Salim Batlouni"
