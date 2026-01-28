@@ -49,11 +49,7 @@ Get comments from Confluence and add them in the relevant requirement md. Execut
         "timestamp": "<ISO_8601_timestamp>"
       }
     ],
-    "plan": {
-      "content": "<trimmed_plan_text>",
-      "status": "pending",
-      "editable": true
-    },
+    "plan": { ... } | null,
     "response": {
       "content": "<trimmed_response_text>",
       "status": "draft",
@@ -63,9 +59,11 @@ Get comments from Confluence and add them in the relevant requirement md. Execut
 }
 ```
 
-7. **Generate AI plan and response** (REQUIRED):
-   - For each comment, analyze the feedback and generate a plan to address it
-   - **Plan Requirements:**
+7. **Generate AI response** (REQUIRED) **and optionally a plan**:
+   - For each comment, generate a **response** that addresses the feedback. A **plan** is optional—include one when the comment implies document changes or follow-up work; omit it when a direct reply is sufficient.
+   - **When to include a plan:** Comment suggests changes, asks "should we add X?", or implies actionable follow-up. Set `plan` to an object with `content`, `status: "pending"`, `editable: true`.
+   - **When to omit the plan:** Comment is a question answered by the response alone, or feedback that doesn't require document changes. Set `plan` to `null` (or omit the key).
+   - **Plan Requirements** (when plan is included):
      - Must be concrete and specific - avoid vague language like "Consider adding", "Maybe include", "Think about"
      - Must specify exact location (line numbers, section names) where changes will be made
      - Must list specific actions: "Add X section after line Y", "Clarify Z in the ABC section", "Update the DEF field to specify GHI"
@@ -81,9 +79,9 @@ Get comments from Confluence and add them in the relevant requirement md. Execut
      - Response should be written as if replying directly to the commenter in a conversation
      - Example GOOD: "Yes, we should document rate limits. I'll add an 'API Rate Limits' section after Authentication that specifies 1000 requests per hour per API key. I'll also include information about rate limit headers in responses and how to handle rate limit errors, which addresses your concern about developers hitting unexpected limits."
      - Example BAD: "Consider adding information about API rate limits to help developers understand throttling behavior."
-   - Add both `plan` and `response` objects to each comment
-   - Set plan status to `"pending"` and response status to `"draft"`
-   - Both should be marked as `"editable": true`
+   - Add `response` object to each comment; add `plan` object only when actionable follow-up is needed
+   - Set response status to `"draft"` and plan status (when present) to `"pending"`
+   - Mark both as `"editable": true` when present
 
 ### Format Rules
 
@@ -150,11 +148,10 @@ Before completing:
 - [ ] COMMENTS-DATA block is at the end of the file
 - [ ] JSON is valid and properly formatted
 - [ ] Block comments target the element line, not the marker line
-- [ ] **Every comment has a `plan` object** (not null) with actionable plan text
 - [ ] **Every comment has a `response` object** (not null) showing revised text
-- [ ] Plan status is set to `"pending"`
-- [ ] Response status is set to `"draft"`
-- [ ] Both plan and response are marked `"editable": true`
+- [ ] **`plan` is optional** - include when comment implies document changes; use `null` or omit when response-only is sufficient
+- [ ] When plan is present: plan status is `"pending"`, marked `"editable": true`
+- [ ] Response status is set to `"draft"`, marked `"editable": true`
 - [ ] **Plan is concrete** - No vague language like "Consider", "Maybe", "Think about"; includes specific location and actions
 - [ ] **Response directly answers commenter** - Addresses their specific question/concern, not generic acknowledgment
 
@@ -183,6 +180,10 @@ Text<!--comment:1--> with<!--comment:2--> multiple comments.
 - Re-serialize and replace the block
 
 ### Plan and Response Examples
+
+**When to use response only (no plan):** Simple questions, clarifications, or feedback that don't imply document changes. Example: "Is this section up to date?" → answer in the response; `plan` can be `null`.
+
+**When to include a plan:** Comment suggests adding/changing content, asks "should we add X?", or implies actionable follow-up. Include a concrete `plan` object.
 
 **Example Comment:** "Should we also support SAML authentication? The current requirements only mention OAuth 2.0."
 
@@ -229,6 +230,6 @@ Text<!--comment:1--> with<!--comment:2--> multiple comments.
 - **Block comment line numbers** - The target line is the element line, not the marker line
 - **Trim all strings** - Remove leading/trailing whitespace from all content fields
 - **Preserve existing comments** - When updating, merge new comments with existing ones
-- **Always generate plan and response** - Every comment MUST have both `plan` and `response` objects (never null)
-- **Plan must be concrete and specific** - Avoid vague suggestions. Specify exact location (line numbers, section names), list specific actions, and describe what content will be added/changed. Use imperative language: "Add X", "Clarify Y", "Update Z" - not "Consider adding X"
+- **Always generate a response** - Every comment MUST have a `response` object (never null). **Plan is optional** - include when the comment implies document changes or follow-up work; set to `null` or omit when a direct reply is enough.
+- **When included, plan must be concrete and specific** - Avoid vague suggestions. Specify exact location (line numbers, section names), list specific actions, and describe what content will be added/changed. Use imperative language: "Add X", "Clarify Y", "Update Z" - not "Consider adding X"
 - **Response must directly answer the commenter** - Read the comment carefully and address their specific question or concern. If they ask "Is X worth doing?", answer "Yes" or "No" with reasoning. If they point out a discrepancy, acknowledge and explain the resolution. Write as if replying directly to them in conversation
