@@ -5,6 +5,22 @@
 
 import { FileDiff, DiffHunk } from './types';
 
+/**
+ * Remove comment markers from a line to compare content
+ */
+function stripCommentMarkers(line: string): string {
+    return line.replace(/<!--comment:\d+-->/g, '').trim();
+}
+
+/**
+ * Check if two lines are the same except for comment markers
+ */
+function isOnlyCommentMarkerDiff(oldLine: string, newLine: string): boolean {
+    const oldStripped = stripCommentMarkers(oldLine);
+    const newStripped = stripCommentMarkers(newLine);
+    return oldStripped === newStripped;
+}
+
 export function parseDiff(filePath: string, diffOutput: string): FileDiff {
     const hunks: DiffHunk[] = [];
     const addedLines = new Set<number>();
@@ -47,19 +63,42 @@ export function parseDiff(filePath: string, diffOutput: string): FileDiff {
         if (line.startsWith('+') && !line.startsWith('+++')) {
             // Added line
             const content = line.substring(1);
-            currentHunk.changes.push({
-                type: 'added',
-                lineNumber: newLineNumber,
-                content
-            });
-            addedLines.add(newLineNumber);
             
-            // If we had pending removals, attach them before this addition
-            if (pendingRemovals.length > 0) {
-                removedLines.set(removalInsertPoint, pendingRemovals.join('\n'));
-                pendingRemovals = [];
+            // Check if this is only a comment marker change
+            // Compare with the most recent pending removal
+            const isCommentOnlyChange = pendingRemovals.length > 0 && 
+                isOnlyCommentMarkerDiff(pendingRemovals[pendingRemovals.length - 1], content);
+            
+            if (isCommentOnlyChange) {
+                // This is only a comment marker change - don't mark as added diff
+                // Remove the last pending removal since it's being "replaced" by essentially the same content
+                const removedContent = pendingRemovals.pop()!;
+                // Treat as context (unchanged) for diff display purposes
+                // But we need to track the line number correctly
+                currentHunk.changes.push({
+                    type: 'context',
+                    lineNumber: newLineNumber,
+                    oldLineNumber: oldLineNumber,
+                    content: stripCommentMarkers(content) // Store without comment markers for consistency
+                });
+                oldLineNumber++;
+                removalInsertPoint = newLineNumber + 1;
+            } else {
+                // Real content change - mark as added
+                currentHunk.changes.push({
+                    type: 'added',
+                    lineNumber: newLineNumber,
+                    content
+                });
+                addedLines.add(newLineNumber);
+                
+                // If we had pending removals, attach them before this addition
+                if (pendingRemovals.length > 0) {
+                    removedLines.set(removalInsertPoint, pendingRemovals.join('\n'));
+                    pendingRemovals = [];
+                }
+                removalInsertPoint = newLineNumber + 1;
             }
-            removalInsertPoint = newLineNumber + 1;
             newLineNumber++;
         } else if (line.startsWith('-') && !line.startsWith('---')) {
             // Removed line

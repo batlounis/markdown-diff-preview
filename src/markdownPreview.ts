@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { getGitDiff, getGitBranch, getGitStatus, FileDiff } from './gitDiff';
-import { renderMarkdownWithDiff } from './markdownRenderer';
+import { renderMarkdownWithDiff } from './core/markdownRenderer';
+import { parseCommentsData } from './core/commentParser';
 
 export class MarkdownDiffPreviewPanel {
     public static currentPanel: MarkdownDiffPreviewPanel | undefined;
@@ -94,6 +95,9 @@ export class MarkdownDiffPreviewPanel {
                         break;
                     case 'selectLines':
                         await this._selectLinesInEditor(message.startLine, message.endLine);
+                        break;
+                    case 'updateComment':
+                        await this._updateComment(message.commentId, message.type, message.content);
                         break;
                 }
             },
@@ -348,6 +352,83 @@ export class MarkdownDiffPreviewPanel {
         }
     }
 
+    private async _updateComment(commentId: number, type: 'plan' | 'response', content: string) {
+        if (!this._document) return;
+
+        try {
+            const markdownContent = this._document.getText();
+            const { parseCommentsData } = await import('./core/commentParser');
+            const commentsData = parseCommentsData(markdownContent);
+            
+            if (!commentsData || !commentsData[commentId.toString()]) {
+                vscode.window.showWarningMessage(`Comment ${commentId} not found`);
+                return;
+            }
+
+            // Find the COMMENTS-DATA block and update it
+            const commentsBlockRegex = /<!--\s*COMMENTS-DATA\s*([\s\S]*?)\s*-->/;
+            const match = markdownContent.match(commentsBlockRegex);
+            
+            if (!match || match.index === undefined) {
+                vscode.window.showWarningMessage('COMMENTS-DATA block not found. Please add a COMMENTS-DATA block to your markdown file.');
+                return;
+            }
+
+            const comment = commentsData[commentId.toString()];
+            
+            // Update the comment data
+            if (type === 'plan') {
+                if (!comment.plan) {
+                    // Create plan if it doesn't exist
+                    comment.plan = {
+                        content: content,
+                        status: 'pending',
+                        editable: true
+                    };
+                } else {
+                    comment.plan.content = content;
+                }
+            } else if (type === 'response') {
+                if (!comment.response) {
+                    // Create response if it doesn't exist
+                    comment.response = {
+                        content: content,
+                        status: 'draft',
+                        editable: true
+                    };
+                } else {
+                    comment.response.content = content;
+                }
+            } else {
+                vscode.window.showWarningMessage(`Invalid comment type: ${type}`);
+                return;
+            }
+
+            // Reconstruct the markdown with updated comments
+            const updatedCommentsJson = JSON.stringify(commentsData, null, 2);
+            const updatedCommentsBlock = `<!--\nCOMMENTS-DATA\n${updatedCommentsJson}\n-->`;
+            
+            const beforeBlock = markdownContent.substring(0, match.index);
+            const afterBlock = markdownContent.substring(match.index + match[0].length);
+            const updatedContent = beforeBlock + updatedCommentsBlock + afterBlock;
+
+            // Apply the edit
+            const edit = new vscode.WorkspaceEdit();
+            const fullRange = new vscode.Range(
+                this._document.positionAt(0),
+                this._document.positionAt(this._document.getText().length)
+            );
+            edit.replace(this._document.uri, fullRange, updatedContent);
+            await vscode.workspace.applyEdit(edit);
+            
+            // Refresh the preview to show updated content
+            this._update();
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Failed to update comment: ${errorMessage}`);
+        }
+    }
+
     private async _update() {
         if (!this._document) return;
 
@@ -376,7 +457,8 @@ export class MarkdownDiffPreviewPanel {
         const diffBase = config.get<string>('diffBase', 'HEAD');
 
         const markdownContent = document.getText();
-        const renderedContent = await renderMarkdownWithDiff(markdownContent, diff, showLineNumbers);
+        const commentsData = parseCommentsData(markdownContent);
+        const renderedContent = await renderMarkdownWithDiff(markdownContent, diff, showLineNumbers, commentsData);
 
         const addedCount = diff?.addedLines.size || 0;
         const removedCount = diff?.removedLines.size || 0;
@@ -455,6 +537,74 @@ export class MarkdownDiffPreviewPanel {
         function redo() {
             vscode.postMessage({ command: 'redo' });
         }
+
+        // Comment system functions
+        function toggleCommentThread(commentId) {
+            const thread = document.getElementById('comment-thread-' + commentId);
+            if (!thread) {
+                console.warn('Comment thread not found:', commentId);
+                return;
+            }
+            
+            const isVisible = thread.style.display !== 'none' && thread.style.display !== '';
+            if (!isVisible) {
+                // Close any other open threads when opening a new one
+                document.querySelectorAll('.comment-thread').forEach(other => {
+                    if (other !== thread) {
+                        other.style.display = 'none';
+                    }
+                });
+            }
+            thread.style.display = isVisible ? 'none' : 'flex';
+            
+            // Scroll thread into view if opening
+            if (!isVisible) {
+                setTimeout(() => {
+                    thread.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }, 10);
+            }
+        }
+
+        // Handle comment plan/response editing
+        let editingComment = null;
+        let editingCommentOriginal = '';
+
+        document.addEventListener('focusin', (e) => {
+            if (e.target.classList.contains('comment-editable')) {
+                editingComment = e.target;
+                editingCommentOriginal = e.target.textContent || '';
+            }
+        });
+
+        document.addEventListener('focusout', (e) => {
+            if (editingComment && !editingComment.contains(e.relatedTarget)) {
+                const newContent = editingComment.textContent || '';
+                if (newContent !== editingCommentOriginal) {
+                    const commentId = editingComment.dataset.commentId;
+                    const type = editingComment.dataset.type; // 'plan' or 'response'
+                    
+                    vscode.postMessage({
+                        command: 'updateComment',
+                        commentId: parseInt(commentId),
+                        type: type,
+                        content: newContent
+                    });
+                }
+                editingComment = null;
+                editingCommentOriginal = '';
+            }
+        });
+
+        // Make comment threads container scrollable and position correctly
+        window.addEventListener('load', () => {
+            const container = document.querySelector('.comment-threads-container');
+            if (container) {
+                // Ensure container is positioned correctly
+                container.style.position = 'fixed';
+                container.style.bottom = '0';
+                container.style.right = '0';
+            }
+        });
 
         // Global keyboard shortcuts for undo/redo
         document.addEventListener('keydown', (e) => {
@@ -689,6 +839,9 @@ export class MarkdownDiffPreviewPanel {
                 }
             }, 150); // 150ms debounce
         });
+
+        // Expose toggleCommentThread globally for onclick handlers
+        window.toggleCommentThread = toggleCommentThread;
     </script>
 </body>
 </html>`;
