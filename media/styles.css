@@ -894,12 +894,48 @@ li.diff-line.removed::marker {
     border-bottom: 1px solid var(--border-color);
     background: var(--bg-tertiary);
     border-radius: 8px 8px 0 0;
+    position: sticky;
+    top: 0;
+    z-index: 2;
 }
 
 .comment-thread-title {
     font-weight: 600;
     font-size: 14px;
     color: var(--text-primary);
+}
+
+.comment-thread-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.comment-thread-nav {
+    display: inline-flex;
+    gap: 4px;
+}
+
+.comment-nav-btn {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1;
+    padding: 4px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.comment-nav-btn:hover {
+    background: var(--border-color);
+    color: var(--text-primary);
+}
+
+.comment-nav-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
 }
 
 .comment-close-btn {
@@ -922,6 +958,14 @@ li.diff-line.removed::marker {
 .comment-close-btn:hover {
     background: var(--border-color);
     color: var(--text-primary);
+}
+
+/* Highlighted comment target in preview */
+.comment-target-highlight {
+    animation: highlightPulse 1.2s ease-in-out;
+    outline: 2px solid rgba(88, 166, 255, 0.6);
+    outline-offset: 2px;
+    border-radius: 4px;
 }
 
 .comment-thread-items {

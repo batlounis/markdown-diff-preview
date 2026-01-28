@@ -52,7 +52,7 @@ export async function renderMarkdownWithDiff(
     const renderCommentBadge = (comment: Comment): string => {
         const status = getCommentStatus(comment);
         const statusClass = `comment-status-${status}`;
-        return `<span class="comment-badge ${statusClass}" data-comment-id="${comment.id}" onclick="toggleCommentThread(${comment.id}); event.stopPropagation();">[${comment.id}]</span>`;
+        return `<span class="comment-badge ${statusClass}" data-comment-id="${comment.id}" data-comment-line="${comment.target.line}" onclick="toggleCommentThread(${comment.id}); event.stopPropagation();">[${comment.id}]</span>`;
     };
 
     /**
@@ -101,10 +101,16 @@ export async function renderMarkdownWithDiff(
         }
 
         return `
-            <div class="comment-thread" id="comment-thread-${comment.id}" style="display: none;">
+            <div class="comment-thread" id="comment-thread-${comment.id}" data-comment-id="${comment.id}" data-comment-line="${comment.target.line}" style="display: none;">
                 <div class="comment-thread-header-bar">
                     <span class="comment-thread-title">Comment ${comment.id}</span>
-                    <button class="comment-close-btn" onclick="toggleCommentThread(${comment.id}); event.stopPropagation();" aria-label="Close">×</button>
+                    <div class="comment-thread-controls">
+                        <div class="comment-thread-nav">
+                            <button class="comment-nav-btn" data-nav="prev" aria-label="Previous comment">←</button>
+                            <button class="comment-nav-btn" data-nav="next" aria-label="Next comment">→</button>
+                        </div>
+                        <button class="comment-close-btn" onclick="toggleCommentThread(${comment.id}); event.stopPropagation();" aria-label="Close">×</button>
+                    </div>
                 </div>
                 <div class="comment-thread-items">
                     ${threadItems || '<div class="comment-thread-item">No comments yet</div>'}

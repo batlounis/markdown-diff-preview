@@ -539,30 +539,120 @@ export class MarkdownDiffPreviewPanel {
         }
 
         // Comment system functions
+        let activeCommentId = null;
+
+        function getCommentOrder() {
+            const badges = Array.from(document.querySelectorAll('.comment-badge[data-comment-id]'));
+            const seen = new Set();
+            const order = [];
+            badges.forEach(badge => {
+                const id = parseInt(badge.dataset.commentId, 10);
+                if (!Number.isNaN(id) && !seen.has(id)) {
+                    seen.add(id);
+                    order.push(id);
+                }
+            });
+            return order;
+        }
+
+        function getCommentLine(commentId) {
+            const thread = document.getElementById('comment-thread-' + commentId);
+            const lineFromThread = thread?.dataset?.commentLine;
+            if (lineFromThread) return parseInt(lineFromThread, 10);
+            const badge = document.querySelector('.comment-badge[data-comment-id="' + commentId + '"]');
+            const lineFromBadge = badge?.dataset?.commentLine;
+            if (lineFromBadge) return parseInt(lineFromBadge, 10);
+            return null;
+        }
+
+        function highlightPreviewTarget(target) {
+            target.classList.add('comment-target-highlight');
+            setTimeout(() => {
+                target.classList.remove('comment-target-highlight');
+            }, 1200);
+        }
+
+        function scrollPreviewToLine(line) {
+            const target = document.querySelector('.content [data-line="' + line + '"]');
+            if (!target) return;
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            highlightPreviewTarget(target);
+        }
+
+        function updateCommentNavState() {
+            const order = getCommentOrder();
+            const disableNav = order.length <= 1;
+            document.querySelectorAll('.comment-nav-btn').forEach(btn => {
+                btn.disabled = disableNav;
+            });
+        }
+
+        function openCommentThread(commentId, options = { scrollToText: true }) {
+            const thread = document.getElementById('comment-thread-' + commentId);
+            if (!thread) {
+                console.warn('Comment thread not found:', commentId);
+                return;
+            }
+
+            // Close any other open threads when opening a new one
+            document.querySelectorAll('.comment-thread').forEach(other => {
+                if (other !== thread) {
+                    other.style.display = 'none';
+                }
+            });
+
+            thread.style.display = 'flex';
+            activeCommentId = commentId;
+            updateCommentNavState();
+
+            if (options.scrollToText) {
+                const line = getCommentLine(commentId);
+                if (line) {
+                    scrollPreviewToLine(line);
+                    scrollToLine(line);
+                }
+            }
+
+            setTimeout(() => {
+                thread.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 10);
+        }
+
         function toggleCommentThread(commentId) {
             const thread = document.getElementById('comment-thread-' + commentId);
             if (!thread) {
                 console.warn('Comment thread not found:', commentId);
                 return;
             }
-            
+
             const isVisible = thread.style.display !== 'none' && thread.style.display !== '';
-            if (!isVisible) {
-                // Close any other open threads when opening a new one
-                document.querySelectorAll('.comment-thread').forEach(other => {
-                    if (other !== thread) {
-                        other.style.display = 'none';
-                    }
-                });
+            if (isVisible) {
+                thread.style.display = 'none';
+                activeCommentId = null;
+            } else {
+                openCommentThread(commentId);
             }
-            thread.style.display = isVisible ? 'none' : 'flex';
-            
-            // Scroll thread into view if opening
-            if (!isVisible) {
-                setTimeout(() => {
-                    thread.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                }, 10);
+        }
+
+        function navigateComment(direction) {
+            const order = getCommentOrder();
+            if (order.length === 0) return;
+
+            let currentId = activeCommentId;
+            if (!currentId) {
+                currentId = order[0];
             }
+
+            let index = order.indexOf(currentId);
+            if (index === -1) index = 0;
+
+            if (direction === 'next') {
+                index = (index + 1) % order.length;
+            } else {
+                index = (index - 1 + order.length) % order.length;
+            }
+
+            openCommentThread(order[index]);
         }
 
         // Handle comment plan/response editing
@@ -603,6 +693,17 @@ export class MarkdownDiffPreviewPanel {
                 container.style.position = 'fixed';
                 container.style.bottom = '0';
                 container.style.right = '0';
+                updateCommentNavState();
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            const navButton = e.target.closest('.comment-nav-btn');
+            if (!navButton) return;
+            e.stopPropagation();
+            const direction = navButton.dataset.nav;
+            if (direction === 'next' || direction === 'prev') {
+                navigateComment(direction);
             }
         });
 
