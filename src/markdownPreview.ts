@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { getGitDiff, getGitBranch, getGitStatus, FileDiff } from './gitDiff';
 import { renderMarkdownWithDiff } from './core/markdownRenderer';
 import { parseCommentsData } from './core/commentParser';
@@ -22,6 +23,9 @@ export class MarkdownDiffPreviewPanel {
             return;
         }
 
+        // Include workspace folders so that images referenced via relative paths
+        // (e.g. ../screenshots/foo.png) can be loaded by the webview.
+        const workspaceRoots = vscode.workspace.workspaceFolders?.map(f => f.uri) ?? [];
         const panel = vscode.window.createWebviewPanel(
             MarkdownDiffPreviewPanel.viewType,
             'MD Diff Preview',
@@ -29,7 +33,7 @@ export class MarkdownDiffPreviewPanel {
             {
                 enableScripts: true,
                 retainContextWhenHidden: true,
-                localResourceRoots: [extensionUri]
+                localResourceRoots: [extensionUri, ...workspaceRoots]
             }
         );
 
@@ -458,7 +462,26 @@ export class MarkdownDiffPreviewPanel {
 
         const markdownContent = document.getText();
         const commentsData = parseCommentsData(markdownContent);
-        const renderedContent = await renderMarkdownWithDiff(markdownContent, diff, showLineNumbers, commentsData);
+
+        // Build a resolver that converts relative image paths (e.g. ../screenshots/foo.png)
+        // to webview-safe URIs. Without this, relative paths resolve against the webview's
+        // synthetic vscode-webview:// origin and always 404.
+        const documentDir = path.dirname(document.uri.fsPath);
+        const resolveUrl = (url: string): string => {
+            // Leave absolute URLs (http/https/data/vscode-*) as-is
+            if (/^(https?:|data:|vscode-)/.test(url)) {
+                return url;
+            }
+            try {
+                const decoded = decodeURIComponent(url);
+                const absPath = path.resolve(documentDir, decoded);
+                return this._panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString();
+            } catch {
+                return url;
+            }
+        };
+
+        const renderedContent = await renderMarkdownWithDiff(markdownContent, diff, showLineNumbers, commentsData, resolveUrl);
 
         const addedCount = diff?.addedLines.size || 0;
         const removedCount = diff?.removedLines.size || 0;
@@ -473,7 +496,7 @@ export class MarkdownDiffPreviewPanel {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this._panel.webview.cspSource}; script-src 'unsafe-inline';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this._panel.webview.cspSource}; script-src 'unsafe-inline'; img-src ${this._panel.webview.cspSource} https: data:;">
     <title>Markdown Diff Preview</title>
     <link rel="stylesheet" href="${stylesUri}">
 </head>

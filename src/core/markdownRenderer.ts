@@ -15,7 +15,8 @@ export async function renderMarkdownWithDiff(
     markdown: string,
     diff: FileDiff | null,
     showLineNumbers: boolean,
-    commentsData?: CommentsData | null
+    commentsData?: CommentsData | null,
+    resolveUrl?: (url: string) => string
 ): Promise<string> {
     const lines = markdown.split('\n');
     const addedLines = diff?.addedLines || new Set<number>();
@@ -245,30 +246,53 @@ export async function renderMarkdownWithDiff(
         return result;
     };
 
+    const applyCharFormatting = (text: string): string => {
+        let result = text;
+        result = result.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        result = result.replace(/__(.+?)__/g, '<strong>$1</strong>');
+        result = result.replace(/\*(.+?)\*/g, '<em>$1</em>');
+        result = result.replace(/_(.+?)_/g, '<em>$1</em>');
+        result = result.replace(/~~(.+?)~~/g, '<del>$1</del>');
+        result = result.replace(/`([^`]+)`/g, '<code>$1</code>');
+        return result;
+    };
+
     const parseInline = (text: string, originalLine?: string, lineNumber?: number): string => {
         // Remove comment markers BEFORE escaping (they're HTML comments, not content)
         let cleanedText = text.replace(/<!--comment:\d+-->/g, '');
         let result = escapeHtml(cleanedText);
-        
-        // Bold
-        result = result.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-        result = result.replace(/__(.+?)__/g, '<strong>$1</strong>');
-        
-        // Italic
-        result = result.replace(/\*(.+?)\*/g, '<em>$1</em>');
-        result = result.replace(/_(.+?)_/g, '<em>$1</em>');
-        
-        // Strikethrough
-        result = result.replace(/~~(.+?)~~/g, '<del>$1</del>');
-        
-        // Inline code
-        result = result.replace(/`([^`]+)`/g, '<code>$1</code>');
-        
-        // Links
-        result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-        
+
+        // Extract images and links into placeholders BEFORE applying italic/bold so
+        // that underscores and asterisks inside URLs are never treated as formatting.
+        // After character formatting runs we restore the placeholders.
+        const placeholders: string[] = [];
+        const stash = (html: string): string => {
+            const id = placeholders.length;
+            placeholders.push(html);
+            // \x00 is safe here because escapeHtml already ran and won't produce it.
+            return `\x00PH${id}\x00`;
+        };
+
+        const urlPattern = '((?:[^()]*|\\([^()]*\\))*)';
         // Images
-        result = result.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />');
+        result = result.replace(
+            new RegExp('!\\[([^\\]]*)\\]\\(' + urlPattern + '\\)', 'g'),
+            (_, alt, url) => {
+                const resolvedUrl = resolveUrl ? resolveUrl(url) : url;
+                return stash(`<img src="${resolvedUrl}" alt="${applyCharFormatting(alt)}" />`);
+            }
+        );
+        // Links
+        result = result.replace(
+            new RegExp('\\[([^\\]]+)\\]\\(' + urlPattern + '\\)', 'g'),
+            (_, linkText, url) => stash(`<a href="${url}">${applyCharFormatting(linkText)}</a>`)
+        );
+
+        // Apply character-level formatting only to the non-tag text
+        result = applyCharFormatting(result);
+
+        // Restore stashed images/links
+        result = result.replace(/\x00PH(\d+)\x00/g, (_, id) => placeholders[parseInt(id, 10)]);
         
         // Wrap plain text segments (between tags) in spans for atomic editing
         result = wrapPlainTextSegments(result);
