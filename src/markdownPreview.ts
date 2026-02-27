@@ -496,7 +496,7 @@ export class MarkdownDiffPreviewPanel {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this._panel.webview.cspSource}; script-src 'unsafe-inline'; img-src ${this._panel.webview.cspSource} https: data:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this._panel.webview.cspSource}; script-src 'unsafe-inline'; img-src ${this._panel.webview.cspSource} https: data:; connect-src ${this._panel.webview.cspSource} https:;">
     <title>Markdown Diff Preview</title>
     <link rel="stylesheet" href="${stylesUri}">
 </head>
@@ -966,6 +966,103 @@ export class MarkdownDiffPreviewPanel {
 
         // Expose toggleCommentThread globally for onclick handlers
         window.toggleCommentThread = toggleCommentThread;
+
+        // Toast notification for copy feedback
+        function showCopyToast(message, isError) {
+            const existing = document.getElementById('copy-toast');
+            if (existing) existing.remove();
+
+            const toast = document.createElement('div');
+            toast.id = 'copy-toast';
+            toast.textContent = message;
+            toast.style.cssText = [
+                'position:fixed',
+                'bottom:24px',
+                'left:50%',
+                'transform:translateX(-50%)',
+                'background:' + (isError ? '#c0392b' : '#27ae60'),
+                'color:#fff',
+                'padding:8px 16px',
+                'border-radius:6px',
+                'font-size:13px',
+                'font-family:system-ui,sans-serif',
+                'pointer-events:none',
+                'z-index:99999',
+                'opacity:1',
+                'transition:opacity 0.4s ease',
+                'white-space:nowrap',
+                'box-shadow:0 2px 8px rgba(0,0,0,0.3)',
+            ].join(';');
+            document.body.appendChild(toast);
+
+            setTimeout(() => { toast.style.opacity = '0'; }, 1800);
+            setTimeout(() => { toast.remove(); }, 2200);
+        }
+
+        // Copy handler: inline images as base64 data URIs so they survive paste
+        // into external apps (Word, Notion, etc.). Without this, the vscode-webview-resource://
+        // URIs in <img src> are opaque outside the webview and images are lost.
+        document.addEventListener('copy', (e) => {
+            const sel = window.getSelection();
+            if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+
+            const range = sel.getRangeAt(0);
+
+            // Snapshot resolved src URLs from the live DOM *before* cloning, because
+            // cloned nodes in a DocumentFragment don't resolve relative/resource URLs.
+            const liveImgs = Array.from(document.querySelectorAll('img')).filter(img => {
+                return range.intersectsNode(img);
+            });
+
+            const fragment = range.cloneContents();
+            const container = document.createElement('div');
+            container.appendChild(fragment);
+
+            const clonedImgs = Array.from(container.querySelectorAll('img'));
+            if (clonedImgs.length === 0) return; // no images — let the browser handle it normally
+
+            e.preventDefault();
+
+            const textContent = sel.toString();
+
+            // Build an HTML blob with all images inlined. ClipboardItem accepts
+            // promise values so we can do async work while still being inside the
+            // synchronous copy event (e.preventDefault() was already called above).
+            const htmlBlob = (async () => {
+                let inlined = 0;
+                await Promise.all(clonedImgs.map(async (clonedImg, i) => {
+                    // Use the live img's fully-resolved .src property
+                    const liveSrc = liveImgs[i]?.src || clonedImg.src || '';
+                    if (!liveSrc || liveSrc.startsWith('data:')) { inlined++; return; }
+                    try {
+                        const resp = await fetch(liveSrc);
+                        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                        const blob = await resp.blob();
+                        const dataUrl = await new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve(reader.result);
+                            reader.readAsDataURL(blob);
+                        });
+                        clonedImg.setAttribute('src', dataUrl);
+                        inlined++;
+                    } catch (err) {
+                        console.warn('[md-preview] Failed to inline image:', liveSrc, err);
+                    }
+                }));
+                showCopyToast('Copied — ' + inlined + ' image' + (inlined === 1 ? '' : 's') + ' included ✓', false);
+                return new Blob([container.innerHTML], { type: 'text/html' });
+            })();
+
+            navigator.clipboard.write([
+                new ClipboardItem({
+                    'text/html': htmlBlob,
+                    'text/plain': new Blob([textContent], { type: 'text/plain' }),
+                })
+            ]).catch((err) => {
+                console.warn('[md-preview] clipboard.write failed:', err);
+                showCopyToast('Copy failed: ' + err.message, true);
+            });
+        });
     </script>
 </body>
 </html>`;
